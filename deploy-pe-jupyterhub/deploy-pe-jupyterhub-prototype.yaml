@@ -1,0 +1,13 @@
+---
+- name: Deploy Networking
+  hosts: localhost
+  vars_files:
+    - ./group_vars/vars.yaml
+  tasks:
+    - name: Create network
+      openstack.cloud.network:
+        state: present
+        name: pe-jupyter-network
+        admin_state_up: true
+        external: false
+        shared: false
