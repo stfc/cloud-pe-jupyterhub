@@ -11,24 +11,97 @@
         admin_state_up: true
         external: false
         shared: false
+        wait: true
 
     - name: Create subnet
+      openstack.cloud.subnet:
+        state: present
+        name: pe-jupyter-subnet
+        network_name: pe-jupyter-network
+        cidr: 10.0.100.0/22
+        gateway_ip: 10.0.100.1
+        allocation_pool_start: 10.0.100.33
+        allocation_pool_end: 10.0.103.254
+        enable_dhcp: true
+        wait: true
 
     - name: Create router and add subnet
+      openstack.cloud.router:
+        state: present
+        name: pe-jupyter-router
+        admin_state_up: true
+        network: External
+        interfaces:
+          - pe-jupyter-subnet
+        wait: true
 
     - name: Create loadbalancer
+      openstack.cloud.loadbalancer:
+        state: present
+        name: pe-jupyter-loadbalancer
+        vip_network: pe-jupyter-network
+        wait: true
 
-    - name: Create base security group
+    - name: Create base security group for initial setup with SSH allowed
+      openstack.cloud.security_group:
+        state: present
+        name: pe-jupyter-configuration-management
+        security_group_rules:
+          - ether_type: IPv4
+            direction: egress
+          - ether_type: IPv6
+            direction: egress
+          - ether_type: IPv4
+            direction: ingress
+            protocol: TCP
+            port_range_min: 22
+            port_range_max: 22
+        wait: true
 
-- name: Deploy Cluster
+- name: Deploy Initial Cluster Host
   hosts: localhost
   vars_files:
     - ./group_vars/vars.yaml
   tasks:
     - name: Create first machine
+      openstack.cloud.server:
+        state: present
+        name: pe-jupyter-microk8s-controller-001
+        flavor: l6.c16
+        boot_from_volume: false
+        image: ubuntu-focal-20.04-nogui
+        network: pe-jupyter-network
+        auto_ip: false
+        security_groups: pe-jupyter-configuration-management
+        key_name: jmm67114
+        wait: true
+      register: vm_info 
 
-    - name: Patch and reboot machine
+    - name: Create SSH listener for loadbalancer 
+      openstack.cloud.lb_listener:
+        state: present
+        name: pe-jupyter-loadbalancer-ssh-listener
+        is_admin_state_up: true
+        load_balancer: pe-jupyter-loadbalancer
+        protocol: TCP
+        protocol_port: 22
+        timeout_client_data: 600
+        timeout_member_data: 600
+        wait: true
 
-    - name: Create non privileged user account
+    - name: Create loadbalancer member pool
+      openstack.cloud.lb_pool:
+        state: present
+        name: pe-jupyter-loadbalancer-ssh-member-pool
+        listener: pe-jupyter-loadbalancer-ssh-listener
+        protocol: TCP
+        wait: true
 
-    - name: Install microk8s
+    - name: Add initial VM to created member pool as a member
+      openstack.cloud.lb_member:
+        state: present
+        name: pe-jupyter-loadbalancer-ssh-member-001
+        pool: pe-jupyter-loadbalancer-ssh-member-pool
+        protocol_port: 22
+        address: "{{ vm_info.server.networks }}"
+        wait: true
