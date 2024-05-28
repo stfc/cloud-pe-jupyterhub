@@ -11,3 +11,24 @@
         admin_state_up: true
         external: false
         shared: false
+
+    - name: Create subnet
+
+    - name: Create router and add subnet
+
+    - name: Create loadbalancer
+
+    - name: Create base security group
+
+- name: Deploy Cluster
+  hosts: localhost
+  vars_files:
+    - ./group_vars/vars.yaml
+  tasks:
+    - name: Create first machine
+
+    - name: Patch and reboot machine
+
+    - name: Create non privileged user account
+
+    - name: Install microk8s
