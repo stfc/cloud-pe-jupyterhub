@@ -1,0 +1,110 @@
+# *** WARNING ***
+# Playbook is under active development, use at your own risk
+
+---
+- name: Deploy Networking
+  hosts: localhost
+  vars_files:
+    - ./group_vars/vars.yaml
+  tasks:
+    - name: Create network
+      openstack.cloud.network:
+        state: present
+        name: pe_jupyter_network
+        admin_state_up: true
+        external: false
+        shared: false
+        wait: true
+
+    - name: Create subnet
+      openstack.cloud.subnet:
+        state: present
+        name: pe_jupyter_subnet
+        network_name: pe_jupyter_network
+        cidr: 10.0.100.0/22
+        gateway_ip: 10.0.100.1
+        allocation_pool_start: 10.0.100.33
+        allocation_pool_end: 10.0.103.254
+        enable_dhcp: true
+        wait: true
+
+    - name: Create router and add subnet
+      openstack.cloud.router:
+        state: present
+        name: pe_jupyter_router
+        admin_state_up: true
+        network: External
+        interfaces:
+          - pe_jupyter_subnet
+        wait: true
+
+    - name: Create loadbalancer
+      openstack.cloud.loadbalancer:
+        state: present
+        name: pe_jupyter_loadbalancer
+        vip_network: pe_jupyter_network
+        wait: true
+
+    - name: Create base security group for initial setup with SSH allowed
+      openstack.cloud.security_group:
+        state: present
+        name: pe_jupyter_configuration_management
+        security_group_rules:
+          - ether_type: IPv4
+            direction: egress
+          - ether_type: IPv6
+            direction: egress
+          - ether_type: IPv4
+            direction: ingress
+            protocol: TCP
+            port_range_min: 22
+            port_range_max: 22
+        wait: true
+
+- name: Deploy Initial Cluster Host
+  hosts: localhost
+  vars_files:
+    - ./group_vars/vars.yaml
+  tasks:
+    - name: Create first machine
+      openstack.cloud.server:
+        state: present
+        name: pe_jupyter_microk8s_controller_001
+        flavor: l6.c16
+        boot_from_volume: false
+        image: ubuntu-focal-20.04-nogui
+        network: pe_jupyter_network
+        auto_ip: false
+        security_groups: pe_jupyter_configuration_management
+        key_name: jmm67114
+        wait: true
+      register: vm_info
+
+    - name: Create SSH listener for loadbalancer
+      openstack.cloud.lb_listener:
+        state: present
+        name: pe_jupyter_loadbalancer_ssh_listener
+        is_admin_state_up: true
+        load_balancer: pe_jupyter_loadbalancer
+        protocol: TCP
+        protocol_port: 22
+        timeout_client_data: 600
+        timeout_member_data: 600
+        wait: true
+
+    - name: Create loadbalancer member pool
+      openstack.cloud.lb_pool:
+        state: present
+        name: pe_jupyter_loadbalancer_ssh_member_pool
+        listener: pe_jupyter_loadbalancer_ssh_listener
+        protocol: TCP
+        wait: true
+
+    - name: Add initial VM to created member pool as a member
+      openstack.cloud.lb_member:
+        state: present
+        name: pe_jupyter_loadbalancer_ssh_member_001
+        pool: pe_jupyter_loadbalancer_ssh_member_pool
+        protocol_port: 22
+        address: "{{ vm_info.server.addresses.pe_jupyter_network[0].addr }}"
+        wait: true
