@@ -78,9 +78,9 @@
         security_groups: pe_jupyter_configuration_management
         key_name: jmm67114
         wait: true
-      register: vm_info 
+      register: vm_info
 
-    - name: Create SSH listener for loadbalancer 
+    - name: Create SSH listener for loadbalancer
       openstack.cloud.lb_listener:
         state: present
         name: pe_jupyter_loadbalancer_ssh_listener
